@@ -1,92 +1,108 @@
-# 🔥 NASA FIRMS Fire Hotspot Prioritization & Triage Dashboard
+# NASA FIRMS Fire Hotspot Triage Dashboard
 
-An explainable, human-centered decision support platform for satellite active fire data from **NASA FIRMS (MODIS Terra/Aqua & VIIRS S-NPP/NOAA-20/21)**.
+A Streamlit dashboard that takes satellite active-fire detections from NASA FIRMS (MODIS Terra/Aqua and VIIRS S-NPP, NOAA-20, NOAA-21) and ranks them by how much attention they probably deserve. It also tells you *why* a hotspot ranks where it does, because a bare number isn't much use to someone deciding what to look at first.
 
----
+## Why I rebuilt this
 
-## 📌 Executive Summary & Key Improvements
+The first version was a short script that sorted hotspots with a simple weighted sum and printed a table. It worked on the happy path and fell over almost everywhere else:
 
-The original code provided a bare-bones heuristic ranking script that suffered from critical operational bugs, scale distortions, and lacked visual spatial context. This enhanced application addresses every requirement of the expected outcome:
-
-| Area | Original Snippet | Enhanced Solution |
+| Area | What the old script did | What this version does |
 | :--- | :--- | :--- |
-| **Error Handling & Ingestion** | Crashed on uppercase column names (`LATITUDE`), failed on VIIRS string confidences (`'l'`, `'n'`, `'h'`), and had no alias mapping. | Case-insensitive column normalizer, synonym mapper (`bright_ti4`, `frp`, `scan`), robust NaN cleaning, and categorical confidence converter. |
-| **Formula & Calibration** | Uncalibrated linear sum: `0.35 * brightness + 0.25 * conf + 0.25 * frp + 15 * repeats`. Since brightness in Kelvin starts at ~300 K, baseline ambient ground heat dominated 70% of the score. A stationary gas flare with 14 repeats outranked a 320 MW crown wildfire. | Calibrated Multi-Criteria Urgency Index (0–100 scale) with log-scaled Fire Radiative Power (MW), ambient-subtracted thermal excess ($\Delta T = T - 300\text{K}$), normalized persistence, and adjustable weights. |
-| **Geospatial Visualization** | No map at all (only a basic data table). | Interactive **PyDeck 3D/2D Geospatial Map** with color-coded urgency tiers, FRP-scaled marker radii, thermal density heatmap overlays, and rich hover tooltips. |
-| **Explainability** | Hard-coded string with raw numbers. | Natural, plain-English rationales explaining *why* an incident is ranked high, with component subscore breakdowns (Energy, Persistence, Thermal, Confidence). Includes stationary industrial heat source advisories. |
-| **Evaluation Benchmark** | None. | **Labelled validation suite** with 5 ground-truth archetypes (Wildfire Conflagration, Emerging Spot, Gas Flare, Agricultural Burn, Cloud-Edge Glint), Spearman rank correlation (0.90 vs 0.70 legacy), and invariant checks ($[0, 100]$ score bounds). |
-| **Exportable Intelligence** | Raw CSV only. | Filtered CSV, GIS-ready **GeoJSON Feature Collection**, and an automated **Executive Incident Briefing Report** in Markdown. |
-| **Humanization & Ethics** | Cryptic error stops (`st.stop()`). | Friendly user guidance, built-in California wildfire dataset for immediate testing, and transparent limitations highlighting satellite revisit latency and non-dispatch boundaries. |
+| Loading data | Broke on uppercase headers like `LATITUDE`, choked on VIIRS confidence letters (`l`, `n`, `h`), and had no idea that `bright_ti4` and `brightness` are the same thing. | Normalizes column names regardless of case, maps common synonyms (`bright_ti4`, `frp`, `scan`), drops bad rows, and converts letter confidences to numbers. |
+| Scoring | Added raw values together with no calibration (see below). | A 0-100 urgency index built from log-scaled FRP, thermal excess over ambient, persistence, and confidence, with adjustable weights. |
+| Map | There wasn't one, just a table. | An interactive PyDeck map: color by urgency tier, marker size by FRP, an optional heat layer, and hover tooltips. |
+| Explanations | One hard-coded string with raw numbers dropped in. | Plain-English reasons for each ranking, plus the four subscores so you can see what pushed it up or down. Likely industrial heat sources get an advisory. |
+| Testing | None. | A small labelled benchmark (five archetypes), a rank-correlation check against the old formula, and tests that scores stay inside 0-100. |
+| Exports | CSV only. | Filtered CSV, GeoJSON for GIS tools, and an auto-generated incident briefing in Markdown. |
+| Errors | `st.stop()` with no explanation. | Messages that say what went wrong, and a built-in California wildfire sample so you can try it without uploading anything. |
 
----
+## How the scoring works
 
-## 🧮 Scientific Formulation: Calibrated Priority Index
+### What was wrong with the old formula
 
-### Why the Legacy Formula Failed
-$$\text{Legacy Priority} = 0.35 \cdot T_{\text{bright}} + 0.25 \cdot C + 0.25 \cdot \text{FRP} + 15 \cdot N_{\text{repeats}}$$
-- **Kelvin Baseline Distortion:** The Earth's surface sits at ~300 K. $0.35 \times 300 = 105$ points were awarded to cold or lukewarm ground purely for existing.
-- **The "Gas Flare Flaw":** A 38 MW stationary gas flare observed 14 times accumulated $15 \times 14 = 210$ points from repeats alone, resulting in a score of **362.75** and outranking an catastrophic 320 MW crown wildfire (**353.88**).
+```
+priority = 0.35 * brightness + 0.25 * confidence + 0.25 * FRP + 15 * repeats
+```
 
-### The Calibrated 0–100 Model
-The enhanced system computes four standardized subscores in the range $[0, 100]$:
+Two problems made it unreliable:
 
-1. **Radiative Intensity Subscore ($S_{\text{frp}}$):** Logarithmically scaled to accommodate the wide dynamic range of fire heat release ($1\text{ to }250+\text{ MW}$):
-   $$S_{\text{frp}} = \min\left(100, \frac{\ln(1 + \text{FRP})}{\ln(1 + 250)} \times 100\right)$$
-2. **Thermal Excess Subscore ($S_{\text{thermal}}$):** Measures radiance above the ambient baseline ($\sim 300\text{ K}$):
-   $$S_{\text{thermal}} = \min\left(100, \max(0, T_{\text{bright}} - 300\text{ K})\right)$$
-3. **Temporal Persistence Subscore ($S_{\text{persist}}$):** Reflects recurrence across distinct orbital overpasses:
-   $$S_{\text{persist}} = \min(100, \max(15, (N_{\text{repeats}} - 1) \times 20 + 15))$$
-4. **Reliability Subscore ($S_{\text{conf}}$):** Direct algorithmic confidence percentage:
-   $$S_{\text{conf}} = \text{Confidence} \in [0, 100]$$
+- **Kelvin baseline.** Brightness temperature is in Kelvin and the ground sits around 300 K even when nothing is burning. So 0.35 x 300 = 105 points were handed out for free to every pixel, which swamped everything else.
+- **Repeats dominated.** A 38 MW gas flare seen on 14 passes picked up 15 x 14 = 210 points from repetition alone and scored 362.75. A 320 MW crown fire scored 353.88. The flare ranked first. That's backwards.
 
-$$\text{Priority Score} = w_{\text{frp}} \cdot S_{\text{frp}} + w_{\text{persist}} \cdot S_{\text{persist}} + w_{\text{thermal}} \cdot S_{\text{thermal}} + w_{\text{conf}} \cdot S_{\text{conf}}$$
+### The new index
 
-### Operational Tiers
-- 🔴 **Critical** ($\ge 75$): Extreme thermal release or rapidly expanding multi-pass complex. Immediate monitoring priority.
-- 🟠 **High** ($50 - 74$): Substantial active combustion or sustained recurrence.
-- 🟡 **Moderate** ($30 - 49$): Developing fire, agricultural burn, or localized hotspot.
-- 🔵 **Low / Monitoring** ($< 30$): Isolated single detection or low radiative energy.
+Four subscores, each on a 0-100 scale:
 
----
+1. **Radiative intensity.** Fire radiative power spans a huge range (roughly 1 to 250+ MW), so it's log-scaled:
 
-## 🧪 Functional & Labelled-Sample Evaluation
+   S_frp = min(100, ln(1 + FRP) / ln(1 + 250) x 100)
 
-The dashboard includes a dedicated **Evaluation Benchmark** tab running against 5 reference archetypes:
+2. **Thermal excess.** How far brightness temperature sits above the ~300 K ambient level, capped at 100:
 
-| Case ID | Archetype | FRP (MW) | Passes | Conf | Calibrated Score | Calibrated Tier | Legacy Score | Ground Truth Urgency |
+   S_thermal = min(100, max(0, T_bright - 300))
+
+3. **Persistence.** How many separate satellite overpasses saw it:
+
+   S_persist = min(100, max(15, (N_repeats - 1) x 20 + 15))
+
+4. **Confidence.** The detection algorithm's own confidence, 0-100.
+
+The final score is a weighted sum:
+
+```
+score = w_frp * S_frp + w_persist * S_persist + w_thermal * S_thermal + w_conf * S_conf
+```
+
+The weights are adjustable in the sidebar.
+
+### Tiers
+
+| Tier | Score | Rough meaning |
+| :--- | :--- | :--- |
+| Critical | 75 and up | Very high heat output, or a fire that keeps showing up across passes. Look at these first. |
+| High | 50-74 | Real, sustained burning. |
+| Moderate | 30-49 | Something developing: an ag burn, a small local hotspot. |
+| Low / Monitoring | under 30 | A single detection or low energy. Keep an eye on it. |
+
+## Does it actually rank things sensibly?
+
+There's an **Evaluation Benchmark** tab that runs five hand-built reference cases, each with a "ground truth" urgency I assigned by judgment:
+
+| Case | Archetype | FRP (MW) | Passes | Conf | New score | New tier | Old score | Truth |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| **TC-01** | Major Wildfire Conflagration | 320.0 | 7 | 98% | **99.7** | 🔴 Critical | 353.88 | 100 |
-| **TC-02** | Rapidly Growing Spot Fire | 85.0 | 3 | 85% | **69.1** | 🟠 High | 212.80 | 75 |
-| **TC-03** | Persistent Industrial Gas Flare | 38.0 | 14 | 90% | **75.7\*** | ⚠️ Moderate/Advisory | **362.75** (Wrong #1) | 45 |
-| **TC-04** | Controlled Prescribed Burn | 14.5 | 1 | 70% | **36.8** | 🟡 Moderate | 148.82 | 25 |
-| **TC-05** | Solar Glint / Marginal Anomaly | 2.1 | 1 | 32% | **18.1** | 🔵 Low | 131.39 | 10 |
+| TC-01 | Major wildfire | 320.0 | 7 | 98% | 99.7 | Critical | 353.88 | 100 |
+| TC-02 | Fast-growing spot fire | 85.0 | 3 | 85% | 69.1 | High | 212.80 | 75 |
+| TC-03 | Persistent industrial gas flare | 38.0 | 14 | 90% | 75.7* | Advisory | 362.75 (ranked #1) | 45 |
+| TC-04 | Prescribed burn | 14.5 | 1 | 70% | 36.8 | Moderate | 148.82 | 25 |
+| TC-05 | Solar glint / marginal anomaly | 2.1 | 1 | 32% | 18.1 | Low | 131.39 | 10 |
 
-\* *Flagged automatically with a stationary industrial heat source advisory in the explainable rationale.*
+\* The dashboard flags this one with a stationary industrial heat source note in its explanation, so it isn't read as a wildfire.
 
-### Validation Metrics
-- **Spearman Rank Correlation:** **0.90** (Calibrated) vs **0.70** (Legacy Raw Formula).
-- **Mathematical Invariants:** All scores verified within $[0, 100]$ with 0% null/NaN rates.
-- **Critical Recall:** 100% of severe emergency events placed in the top tier.
+What the checks show:
 
----
+- Spearman rank correlation with the ground truth is **0.90** for the new index and **0.70** for the old formula.
+- Every score lands inside 0-100, and nothing comes back null or NaN.
+- All of the severe cases end up in the top tier.
 
-## 🚀 How to Run
+Keep in mind that five cases is a sanity check, not a proper validation. I'd want real labelled incidents before trusting the weights in any serious setting.
 
-### 1. Launch the Streamlit Dashboard
+## Running it
+
+Start the dashboard:
+
 ```bash
 py -m streamlit run app.py
 ```
 
-### 2. Run Automated Unit & Invariant Tests
+Run the tests:
+
 ```bash
 py test_fire_ranking.py
 ```
 
----
+## Limits you should know about
 
-## ⚠️ Operational Boundaries & Scientific Disclaimers
-
-1. **Orbital Revisit Latency:** LEO satellites (MODIS / VIIRS) pass over any given location 1–4 times per 24 hours. **The absence of a thermal hotspot does NOT mean a fire is extinguished.**
-2. **Cloud & Smoke Obscuration:** Heavy convective smoke (pyrocumulonimbus) or meteorological cloud cover absorbs mid-wave infrared radiance, causing false negatives.
-3. **Canopy Attenuation:** Dense tree canopies can mask low-intensity smoldering ground fires.
-4. **Not an Autonomous Emergency Dispatch System:** This tool is designed strictly for **assistive situational triage and analytical prioritization**. It must not replace incident commander ground verification or official emergency response protocols.
+1. **Satellites don't watch continuously.** MODIS and VIIRS pass over a given spot only a few times a day (roughly one to four). No hotspot in the data does not mean the fire is out.
+2. **Smoke and cloud hide fires.** Thick smoke columns (pyrocumulonimbus, for example) and ordinary cloud cover block the mid-infrared signal, which leads to missed detections.
+3. **Canopy hides small fires.** Dense tree cover can mask low-intensity smoldering on the ground.
+4. **This is not a dispatch system.** It's meant to help a person decide where to look first, not to make or replace emergency response decisions. Always confirm with ground reports, aerial observation, and the agencies responsible for the area.
