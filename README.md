@@ -2,34 +2,19 @@
 
 A Streamlit dashboard that takes satellite active-fire detections from NASA FIRMS (MODIS Terra/Aqua and VIIRS S-NPP, NOAA-20, NOAA-21) and ranks them by how much attention they probably deserve. It also tells you *why* a hotspot ranks where it does, because a bare number isn't much use to someone deciding what to look at first.
 
-## Why I rebuilt this
+## Why I built this
 
-The first version was a short script that sorted hotspots with a simple weighted sum and printed a table. It worked on the happy path and fell over almost everywhere else:
-
-| Area | What the old script did | What this version does |
-| :--- | :--- | :--- |
-| Loading data | Broke on uppercase headers like `LATITUDE`, choked on VIIRS confidence letters (`l`, `n`, `h`), and had no idea that `bright_ti4` and `brightness` are the same thing. | Normalizes column names regardless of case, maps common synonyms (`bright_ti4`, `frp`, `scan`), drops bad rows, and converts letter confidences to numbers. |
-| Scoring | Added raw values together with no calibration (see below). | A 0-100 urgency index built from log-scaled FRP, thermal excess over ambient, persistence, and confidence, with adjustable weights. |
-| Map | There wasn't one, just a table. | An interactive PyDeck map: color by urgency tier, marker size by FRP, an optional heat layer, and hover tooltips. |
-| Explanations | One hard-coded string with raw numbers dropped in. | Plain-English reasons for each ranking, plus the four subscores so you can see what pushed it up or down. Likely industrial heat sources get an advisory. |
-| Testing | None. | A small labelled benchmark (five archetypes), a rank-correlation check against the old formula, and tests that scores stay inside 0-100. |
-| Exports | CSV only. | Filtered CSV, GeoJSON for GIS tools, and an auto-generated incident briefing in Markdown. |
-| Errors | `st.stop()` with no explanation. | Messages that say what went wrong, and a built-in California wildfire sample so you can try it without uploading anything. |
-
-## How the scoring works
+a short script that sorted hotspots with a simple weighted sum and printed a table. It worked on the happy path and fell over almost everywhere else:
 
 ### What was wrong with the old formula
-
-```
-priority = 0.35 * brightness + 0.25 * confidence + 0.25 * FRP + 15 * repeats
-```
-
-Two problems made it unreliable:
+Two problems used to make it unreliable:
 
 - **Kelvin baseline.** Brightness temperature is in Kelvin and the ground sits around 300 K even when nothing is burning. So 0.35 x 300 = 105 points were handed out for free to every pixel, which swamped everything else.
 - **Repeats dominated.** A 38 MW gas flare seen on 14 passes picked up 15 x 14 = 210 points from repetition alone and scored 362.75. A 320 MW crown fire scored 353.88. The flare ranked first. That's backwards.
 
-### The new index
+(but now its alright)
+
+### The index
 
 Four subscores, each on a 0-100 scale:
 
