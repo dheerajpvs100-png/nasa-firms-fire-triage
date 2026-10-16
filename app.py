@@ -102,9 +102,7 @@ st.markdown("""
 st.title("🔥 NASA FIRMS Fire Hotspot Prioritization Dashboard")
 st.markdown("""
 **An explainable situational triage system for spaceborne thermal anomalies.**  
-This tool ingests satellite active fire data from **NASA FIRMS (MODIS / VIIRS)**, cleans and standardizes 
-inconsistent formats, aggregates repeated detections into incident clusters, and ranks locations using an 
-explainable, normalized multi-criteria urgency score.
+A small dashboard that imports satellite fire observations, validates fields, displays records on a map or filterable table, and ranks observations using explainable factors such as time, confidence, brightness/FRP, or repeat detections
 """)
 
 # -----------------------------------------------------------------------------
@@ -320,12 +318,12 @@ with st.expander("ℹ️ Data Ingestion & Sanitation Details"):
 # Main Tabs: Map, Queue, Analytics, Evaluation, Export, Limitations
 # -----------------------------------------------------------------------------
 tab_map, tab_queue, tab_analytics, tab_eval, tab_export, tab_limits = st.tabs([
-    "🗺️ Interactive Fire Map",
-    "📋 Prioritized Hotspot Queue",
-    "📊 Contextual Overlays & Distributions",
-    "🧪 Functional & Labelled Evaluation",
-    "📥 Export & Incident Briefing",
-    "⚠️ Operational Limitations & Ethics"
+    "🗺️ Fire Map",
+    "📋 Priority Queue",
+    "📊 Analytics",
+    "🧪 Evaluation",
+    "📥 Export",
+    "⚠️ Limitations"
 ])
 
 # -----------------------------------------------------------------------------
@@ -701,8 +699,7 @@ Data Source: {source_name}
 with tab_limits:
     st.subheader("⚠️ Operational Limitations & Responsible AI Notice")
     st.markdown("""
-    Satellite-based remote sensing provides invaluable wide-area situational awareness, but operational 
-    decision-makers must account for inherent physical and algorithmic constraints:
+    Satellite imagery gives teams a powerful way to monitor large areas and identify potential wildfire activity. However, like any technology, it has limitations. The information shown in this dashboard should be used alongside ground observations, local expertise, and other data sources when making operational decisions.
     """)
 
     l_col1, l_col2 = st.columns(2)
@@ -710,18 +707,17 @@ with tab_limits:
     with l_col1:
         st.markdown("""
         #### 🛰️ Physical & Sensor Limitations
-        - **Orbital Revisit Latency:** Low Earth Orbit (LEO) satellites (MODIS Terra/Aqua, VIIRS S-NPP/NOAA) view any given mid-latitude location only 1–4 times every 24 hours. **The absence of a hotspot does NOT confirm a fire is extinguished.**
-        - **Cloud & Heavy Smoke Obscuration:** Thick convective pyrocumulonimbus clouds or dense smoke plumes absorb and scatter 4µm mid-wave infrared radiation, potentially masking intense surface fires.
-        - **Canopy Attenuation:** Dense forest tree canopies mask low-intensity smoldering understory fires from detection.
-        - **Spatial Resolution & Geolocation Drift:** Nominal sub-satellite pixel resolution is 1 km (MODIS) or 375 m (VIIRS). Near the edge of the scan swath, pixel footprint expands up to ~2x.
-        """)
+        - **Orbital Revisit Latency:** Satellites such as MODIS and VIIRS do not continuously watch the same location. Depending on the satellite's orbit, an area may only be revisited every few hours. As a result, a fire could start, spread, or even be extinguished between satellite passes.
+        - **Cloud & Heavy Smoke Interference:** Thick cloud cover and dense smoke can block or distort the thermal signals detected by satellite sensors. In some cases, active fires may be partially or completely hidden from view.
+        - **Forest Canopy Coverage:**  Fires burning beneath dense tree canopies can be difficult to detect from space, especially when they are small or smouldering. These understorey fires may generate weak thermal signatures that remain unseen by the sensor.     
+        - **Location and Resolution Accuracy:** Satellite hotspots represent thermal activity within a broad area rather than a precise point on the ground. Detection accuracy may decrease toward the edges of the satellite's viewing path, where pixel sizes become larger and less precise.        """)
 
     with l_col2:
         st.markdown("""
-        #### 🛑 Operational & Algorithmic Boundaries
-        - **Triage Heuristic, NOT a Predictive Model:** The priority score evaluates current and historical thermal evidence. It does not predict future fire spread, wind direction, or fuel moisture without coupled weather models.
-        - **Non-Fire Thermal Signatures:** Highly persistent anomalies in industrial corridors (refineries, metal smelters, gas flares) or high-albedo solar reflection glints can trigger thermal alerts.
-        - **Not an Emergency Dispatch Authority:** This dashboard is an assistive analytical tool designed to help analysts prioritize satellite feeds. It must never be used as an autonomous dispatch authority without ground verification.
+        #### 🛑 Operational & Analytical Boundaries
+        - **Decision Support, NOT a Predictive Model:** The priority score is designed to help analysts identify areas that may require attention based on current and historical observations. It does not predict how a fire will spread, change direction, or behave in the future.        
+        - **Potential False Positives:** Highly persistent anomalies in industrial corridors (refineries, metal smelters, gas flares) or high-albedo solar reflection glints can trigger thermal alerts.
+        - **Not a Dispatch System:** This dashboard is intended to support situational awareness and prioritisation efforts. Final operational decisions, including emergency response actions, should always be confirmed through additional verification and on-the-ground assessment.
         """)
 
-st.caption("Developed for wildfire situational triage • Powered by NASA FIRMS active fire products • Compliant with open scientific standards.")
+st.caption("Built to support wildfire monitoring and situational awareness using NASA FIRMS active fire data, while promoting transparent and responsible use of AI-assisted analytics.")
